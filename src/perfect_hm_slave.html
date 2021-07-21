@@ -1,4 +1,3 @@
-
 <!DOCTYPE HTML>
 <html>
 
@@ -9,11 +8,6 @@
 </head>
 
 <body>
-	Warning, this page is not completely stable, because i haven't implemented a custom xmlhttprequest-queue,
-	and depend on the browser's built-in queue, which isn't reliably able to handle 1400+ concurrent requests, at least
-	not on Chromium-based browsers. Firefox seems to be completely stable, however.
-	When this page is not crashing, it is supposed to look like <a
-		href="https://raw.githubusercontent.com/divinity76/pokemon_perfect_hm_slave/main/src/no_crash.png" target="_blank">this.</a><br />
 	<span id="errorlog"></span>
 	<span id="status">initializing javascript..</span>
 	<div id="show_me_after_initialized" style="display:none;">
@@ -36,6 +30,111 @@
 </body>
 <script>
 	"use strict";
+	// Firefox works fine with >=1400 concurrent XMLHttpRequests,
+	// but Google Chrome becomes unstable when doing the same, thus i created this monstrosity..
+	// it makes Firefox slower, but it makes Chrome stop crashing. 
+	// by crashing i mean that it makes XMLhttpRequests stop, without even firing an error event
+	// and complaining in console about net::ERR_INSUFFICIENT_RESOURCES
+	function XMLHttpRequestWithUserlandQueue() {
+
+		if (!XMLHttpRequestWithUserlandQueue._master_internal) {
+			XMLHttpRequestWithUserlandQueue._master_internal = {
+				"max_concurrent": 100, // warning, while changing this number at runtime *might work*, i have not carefully coded to make sure that it actually *does* work to change this at runtime.
+				"process_queues": function () {
+					while (this.xhrs_ready_to_fire_queue.length > 0 && this.xhrs_running_queue.running_count() < this.max_concurrent) {
+						let to_fire = this.xhrs_ready_to_fire_queue.pop();
+						let realXHR = new XMLHttpRequest();
+						let realXHR_key = this.xhrs_running_queue.add(realXHR);
+						realXHR._XMLHttpRequestWithUserlandQueue_key = realXHR_key;
+						let endcb = function () {
+							for(let index in realXHR){
+								to_fire[index] = realXHR[index];
+							}
+							XMLHttpRequestWithUserlandQueue._master_internal.xhrs_running_queue.remove(realXHR_key);
+							XMLHttpRequestWithUserlandQueue._master_internal.process_queues();
+						};
+						realXHR.addEventListener("load", endcb);
+						realXHR.addEventListener("error", endcb);
+						for (let index in to_fire._local_internal["function_call_queue"]) {
+							let func_data = to_fire._local_internal["function_call_queue"][index];
+							// todo: to handle the situation where this stuff throws exception, we should probably re-write it to do 
+							// some finally{} stuff to fire all the xhrs even when some of them throws exceptions.
+							// cba looking into it now...
+							// realXHR[func_data.function].apply(func_data.original_this, func_data.arguments);
+							realXHR[func_data.function].apply(realXHR, func_data.arguments);
+						}
+					};
+				},
+				"xhrs_ready_to_fire_queue": [],
+				"xhrs_running_queue": {
+					"key_counter": -1, // << will this key counter fail sometime after Number.MAX_SAFE_INTEGER / 9007199254740991 members? yes, in theory. in practice it should never be reached though..
+					"add": function (xhr) {
+						++this["key_counter"];
+						this[this["key_counter"]] = xhr;
+						return this["key_counter"];
+					},
+					"remove": function (keyToRemove) {
+						delete this[keyToRemove];
+					},
+					"running_count": function () {
+						let ret = 0;
+						for (let index in this) {
+							if (["key_counter", "add", "remove", "running_count", "processQueue"].indexOf(index) !== -1) {
+								continue;
+							}
+							++ret;
+						}
+						return ret;
+					}
+				}
+			};
+		}
+		const createObject = function (o) {
+			// i have no idea what im doing, just following https://stackoverflow.com/a/1919670/1067003
+			function XMLHttpRequestWithUserlandQueue() { }
+			XMLHttpRequestWithUserlandQueue.prototype = o;
+			return new XMLHttpRequestWithUserlandQueue();
+		};
+		let _internal = XMLHttpRequestWithUserlandQueue._internal;
+		let ret = createObject(XMLHttpRequestWithUserlandQueue.prototype);
+		ret._local_internal = {
+			"function_call_queue": [],
+			"fire_status": -1 // -1: not ready to fire. 0: ready to fire, but not fired yet. 1: fired
+		};
+		ret.open = function (method, url, async, user, password) {
+			if (async === undefined) {
+				async = true;
+				arguments[2] = true; // ..ick
+			}
+			if (!async) {
+				throw new Error("this userland hack doesnt support non-async..");
+			}
+			ret._local_internal["function_call_queue"].push({
+				"function": "open",
+				"original_this": this,
+				"arguments": arguments
+			});
+		};
+		ret.addEventListener = function () {
+			ret._local_internal["function_call_queue"].push({
+				"function": "addEventListener",
+				"original_this": this,
+				"arguments": arguments
+			});
+		};
+		ret.send = function () {
+			ret._local_internal["function_call_queue"].push({
+				"function": "send",
+				"original_this": this,
+				"arguments": arguments
+			});
+			ret._local_internal.fire_status = 0;
+			XMLHttpRequestWithUserlandQueue._master_internal.xhrs_ready_to_fire_queue.push(ret);
+			XMLHttpRequestWithUserlandQueue._master_internal.process_queues();
+		};
+		return ret;
+	}
+	//////////////////////////////////////////////////
 	function log_error() {
 		let errstr = "";
 		for (let index in arguments) {
@@ -61,10 +160,11 @@
 	}
 	(async function () {
 		"use strict";
+
 		let machines = await new Promise(function (resolve_machines_loaded) {
 			$("#status").text("loading machines list (this might take a while).. ");
 			let machines = {};
-			let xhr = new XMLHttpRequest();
+			let xhr = new XMLHttpRequestWithUserlandQueue();
 			xhr.open("GET", "https://pokeapi.co/api/v2/machine/?limit=999999");
 			xhr.addEventListener("load", function () {
 				let parsed = JSON.parse(xhr.responseText);
@@ -76,7 +176,7 @@
 				let total_machines = machines_list.length;
 				let machines_loaded = 0;
 				for (let machine_index in machines_list) {
-					let machineXHR = new XMLHttpRequest();
+					let machineXHR = new XMLHttpRequestWithUserlandQueue();
 					machineXHR.open("GET", machineXHR._url = machines_list[machine_index].url);
 					machineXHR.addEventListener("error", function () {
 						log_error("<span style='color:red'>i suggest refreshing the page!</span> some error loading " + machineXHR._url);
@@ -148,7 +248,7 @@
 		$("#status").text("loading hidden moves data: " + hidden_moves_loaded + "/" + Object.getOwnPropertyNames(hidden_moves).length);
 		await new Promise(function (resolve) {
 			for (let hidden_move_index in hidden_moves) {
-				let hmXhr = new XMLHttpRequest();
+				let hmXhr = new XMLHttpRequestWithUserlandQueue();
 				hmXhr._hidden_move_index = hidden_move_index;
 				hmXhr.open("GET", hidden_moves[hidden_move_index].url);
 				hmXhr.addEventListener("load", function () {
@@ -178,7 +278,7 @@
 			for (let hm_pokemons_index in hm_pokemons) {
 				let hm_pokemon = hm_pokemons_index;
 				let url = hm_pokemons[hm_pokemons_index];
-				let hm_pokemon_xhr = new XMLHttpRequest();
+				let hm_pokemon_xhr = new XMLHttpRequestWithUserlandQueue();
 				hm_pokemon_xhr.open("GET", url);
 				hm_pokemon_xhr.addEventListener("load", function () {
 					hm_pokemons[hm_pokemon] = JSON.parse(hm_pokemon_xhr.responseText);
