@@ -79,7 +79,7 @@
 					let machineXHR = new XMLHttpRequest();
 					machineXHR.open("GET", machineXHR._url = machines_list[machine_index].url);
 					machineXHR.addEventListener("error", function () {
-						log_error("i suggest refreshing the browser load! some error loading " + machineXHR._url);
+						log_error("<span style='color:red'>i suggest refreshing the page!</span> some error loading " + machineXHR._url);
 					});
 					machineXHR.addEventListener("load", function () {
 						++machines_loaded;
