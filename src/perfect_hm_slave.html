@@ -1,0 +1,282 @@
+
+<!DOCTYPE HTML>
+<html>
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Find Your Perfect HM Slave today! match gluaranteed!</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+
+<body>
+	Warning, this page is not completely stable, because i haven't implemented a custom xmlhttprequest-queue,
+	and depend on the browser's built-in queue, which isn't reliably able to handle 1400+ concurrent requests, at least
+	not on Chromium-based browsers. Firefox seems to be completely stable, however.
+	When this page is not crashing, it is supposed to look like <a
+		href="https://i.imgur.com/2mINytC.png" target="_blank">this.</a><br />
+	<span id="errorlog"></span>
+	<span id="status">initializing javascript..</span>
+	<div id="show_me_after_initialized" style="display:none;">
+		<span id="game_pick_stuff" style="">
+			<label for="game_pick">Pick a game:</label>
+			<select name="game_pick" id="game_pick">
+				<option></option>
+			</select>
+		</span>
+		<br />
+		<span id="moves_pick_stuff" style="display:none">
+			<label for="moves_selection">which HM moves should your slave be able to learn?<br /></label>
+			<select name="moves_selection" id="moves_selection" multiple>
+			</select>
+		</span>
+		<br />
+		your perfect HM slaves:<br />
+		<span id="perfect_hm_slaves"></span>
+	</div>
+</body>
+<script>
+	"use strict";
+	function log_error() {
+		let errstr = "";
+		for (let index in arguments) {
+			errstr += arguments[index] + " - ";
+		}
+		// alert(errstr);
+		$("#errorlog")[0].innerHTML += "<br/>\n" + errstr + "<br/>\n";
+	}
+	window.addEventListener("error", function (msg, url, line, col, error) {
+		msg = msg.message ? msg.message : msg;
+		let extra = !col ? '' : '\ncolumn: ' + col;
+		extra += !error ? '' : '\nerror: ' + error;
+		let errormsg = "Javascript crashed, uncaught Error: " + msg + "\nurl: "
+			+ url + "\nline: " + line + extra;
+		log_error(errormsg);
+		alert(errormsg);
+		var suppressErrorAlert = false;
+		return suppressErrorAlert;
+	});
+
+	if (!!window.chrome) {
+		log_error("Warning: chromium-based browser detected, there appears to be a bug in chromium-based browsers where net::ERR_INSUFFICIENT_RESOURCES -errors in XMLHttpRequest does not trigger XMLHttpRequest.error handlers and just let the xhr hang indefinitely! that may crash/freeze this page");
+	}
+	(async function () {
+		"use strict";
+		let machines = await new Promise(function (resolve_machines_loaded) {
+			$("#status").text("loading machines list (this might take a while).. ");
+			let machines = {};
+			let xhr = new XMLHttpRequest();
+			xhr.open("GET", "https://pokeapi.co/api/v2/machine/?limit=999999");
+			xhr.addEventListener("load", function () {
+				let parsed = JSON.parse(xhr.responseText);
+				if (parsed.next != null) {
+					throw new Error("pagination detected, haven't implemented pagination logic! "
+						+ "(cus im lazy and just request 999999 items, hoping that request is granted and it being sufficient indefinitely. it worked at 2021-07-21)");
+				}
+				let machines_list = parsed.results;
+				let total_machines = machines_list.length;
+				let machines_loaded = 0;
+				for (let machine_index in machines_list) {
+					let machineXHR = new XMLHttpRequest();
+					machineXHR.open("GET", machineXHR._url = machines_list[machine_index].url);
+					machineXHR.addEventListener("error", function () {
+						log_error("some error loading " + machineXHR._url);
+					});
+					machineXHR.addEventListener("load", function () {
+						++machines_loaded;
+						$("#status").text("loading machines: " + machines_loaded + "/" + total_machines);
+						let machine = JSON.parse(machineXHR.responseText);
+						machines[machine.id] = machine;
+						if (machines_loaded >= total_machines) {
+							let machines_array = [];
+							for (let i = 0; i < total_machines; ++i) {
+								machines_array.push(machines[i]);
+							}
+							resolve_machines_loaded(machines_array);
+						}
+					});
+					machineXHR.send();
+				}
+			});
+			xhr.send();
+		});
+		$("#status").text("filtering hidden machines..");
+		let hidden_machines = [];
+		let hidden_moves = {};
+		let all_games = [];
+		$(machines).each(function (id, machine) {
+			if (!machine) {
+				// todo: investigate why this is needed (its undefined/null sometimes? why?)
+				return;
+			}
+			if (machine.item.name.toLowerCase().indexOf("hm") !== 0) {
+				return;
+			}
+			hidden_machines.push(machine);
+			// todo: gotta be a better way to do this!
+			let games = machine["version_group"]["name"].split(/(black\-2)|(white\-2)|(\-)/).filter(function (foo) { if (!foo || foo === "-") { return false; } return true; });
+			for (let index in games) {
+				let game = games[index];
+				if (all_games.indexOf(game) === -1) {
+					all_games.push(game);
+				}
+			}
+			if (hidden_moves[machine.move.name]) {
+				// already have this hidden move, just merge the games list then..
+				for (let index in games) {
+					let game = games[index];
+					if (hidden_moves[machine.move.name]["games"].indexOf(game) === -1) {
+						hidden_moves[machine.move.name]["games"].push(game);
+					}
+				}
+			} else {
+				hidden_moves[machine.move.name] = {
+					"name": machine.move.name,
+					"games": games,
+					"url": machine.move.url
+				};
+			}
+		});
+		for (let game_index in all_games) {
+			let game = all_games[game_index];
+			let option = document.createElement("option");
+			option.value = game;
+			option.textContent = game;
+			$("#game_pick")[0].appendChild(option);
+		}
+		$("#status").text("filtered!");
+		let hidden_moves_loaded = 0;
+		$("#status").text("loading hidden moves data: " + hidden_moves_loaded + "/" + Object.getOwnPropertyNames(hidden_moves).length);
+		await new Promise(function (resolve) {
+			for (let hidden_move_index in hidden_moves) {
+				let hmXhr = new XMLHttpRequest();
+				hmXhr._hidden_move_index = hidden_move_index;
+				hmXhr.open("GET", hidden_moves[hidden_move_index].url);
+				hmXhr.addEventListener("load", function () {
+					++hidden_moves_loaded;
+					hidden_moves[hmXhr._hidden_move_index]["data"] = JSON.parse(hmXhr.responseText);
+					$("#status").text("loading hidden moves data: " + hidden_moves_loaded + "/" + Object.getOwnPropertyNames(hidden_moves).length);
+					if (hidden_moves_loaded >= Object.getOwnPropertyNames(hidden_moves).length) {
+						resolve();
+					}
+				});
+				hmXhr.send();
+			}
+		});
+		$("#status").text("gathering list of pokemon to get generation data..");
+		let hm_pokemons = {};
+		for (let hidden_moves_index in hidden_moves) {
+			let hidden_move = hidden_moves[hidden_moves_index];
+			for (let learned_by_pokemon_index in hidden_move["data"]["learned_by_pokemon"]) {
+				let foo = hidden_move["data"]["learned_by_pokemon"][learned_by_pokemon_index];
+				hm_pokemons[foo.name] = foo.url;
+			}
+		}
+		const hm_pokemons_total = Object.getOwnPropertyNames(hm_pokemons).length;
+		$("#status")[0].textContent += " HM pokemon found: " + hm_pokemons_total + " .. loading pokemon";
+		let hm_pokemons_loaded = 0;
+		await new Promise(function (resolve) {
+			for (let hm_pokemons_index in hm_pokemons) {
+				let hm_pokemon = hm_pokemons_index;
+				let url = hm_pokemons[hm_pokemons_index];
+				let hm_pokemon_xhr = new XMLHttpRequest();
+				hm_pokemon_xhr.open("GET", url);
+				hm_pokemon_xhr.addEventListener("load", function () {
+					hm_pokemons[hm_pokemon] = JSON.parse(hm_pokemon_xhr.responseText);
+					++hm_pokemons_loaded;
+					$("#status").text("loaded HM pokemon: " + hm_pokemons_loaded + "/" + hm_pokemons_total);
+					if (hm_pokemons_loaded >= hm_pokemons_total) {
+						resolve();
+					}
+				});
+				hm_pokemon_xhr.send();
+			}
+		});
+
+		console.log(hm_pokemons);
+
+		console.log(hidden_moves);
+		//console.log(hidden_machines);
+		console.log(all_games);
+		$("#show_me_after_initialized").show();
+		$("#game_pick").on("input change", function () {
+			const game_selected = $("#game_pick").find(":selected").val();
+			$("#moves_pick_stuff").hide();
+			$("#moves_selection").children("option:not(:empty)").remove();
+			let valid_moves = [];
+			for (let hidden_moves_index in hidden_moves) {
+				let hidden_move = hidden_moves[hidden_moves_index];
+				if (hidden_move["games"].indexOf(game_selected) === -1) {
+					continue;
+				}
+				valid_moves.push(hidden_move);
+				let option = document.createElement("option");
+				option.textContent = option.value = hidden_moves_index;
+				$("#moves_selection")[0].appendChild(option);
+			}
+			$("#moves_selection").attr("size", valid_moves.length);
+			$("#moves_pick_stuff").show();
+			console.log(valid_moves);
+		});
+		$("#moves_selection").on("input change", function () {
+			let selected_moves = [];
+			$("#moves_selection").find(":selected").each(function () {
+				selected_moves.push(this.value);
+			});
+			let hm_pokemons_in_this_game = [];
+			let hm_pokemons_in_this_game_capable_of_learning_all_required_moves = [];
+			for (let hm_pokemons_index in hm_pokemons) {
+				const game_selected = $("#game_pick").find(":selected").val();
+				let hm_pokemon = hm_pokemons[hm_pokemons_index];
+				const is_in_this_game = (function () {
+					for (let indice in hm_pokemon["game_indices"]) {
+						if (hm_pokemon["game_indices"][indice]["version"]["name"] === game_selected) {
+							return true;
+						}
+					}
+					return false;
+				})();
+				if (!is_in_this_game) {
+					continue;
+				}
+				hm_pokemons_in_this_game.push(hm_pokemon);
+				let can_learn_all_selected_moves = true;
+				for (let selected_moves_index in selected_moves) {
+					// console.log(selected_moves_index); => integer
+					let selected_move = selected_moves[selected_moves_index];
+					// console.log(selected_move); => cut / flash / strength
+					const can_learn_this_move = (function () {
+						// temp0[0]["moves"][0]["move"]["name"] => "razor-wind"
+						for (let moves_index in hm_pokemon["moves"]) {
+							if (hm_pokemon["moves"][moves_index]["move"]["name"] === selected_move) {
+								return true;
+							}
+						}
+						return false;
+					})();
+					if (!can_learn_this_move) {
+						can_learn_all_selected_moves = false;
+						break;
+					}
+				}
+				if (!can_learn_all_selected_moves) {
+					continue;
+				}
+				hm_pokemons_in_this_game_capable_of_learning_all_required_moves.push(hm_pokemon["name"]);
+			}
+			$("#perfect_hm_slaves").children().remove();
+			for (let i in hm_pokemons_in_this_game_capable_of_learning_all_required_moves) {
+				let perfect_hm_slave = hm_pokemons_in_this_game_capable_of_learning_all_required_moves[i];
+				let ele = document.createElement("a");
+				ele.href = "https://bulbapedia.bulbagarden.net/wiki/" + encodeURIComponent(perfect_hm_slave);
+				ele.textContent = perfect_hm_slave;
+				ele.target = "_blank";
+				$("#perfect_hm_slaves")[0].appendChild(ele);
+				$("#perfect_hm_slaves")[0].appendChild(document.createElement("br"));
+			}
+			console.log(hm_pokemons_in_this_game);
+			console.log(hm_pokemons_in_this_game_capable_of_learning_all_required_moves);
+		});
+	})();
+</script>
+
+</html>
