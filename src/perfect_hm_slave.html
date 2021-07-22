@@ -21,8 +21,8 @@
 		<br />
 		<span id="moves_pick_stuff" style="display:none">
 			<label for="moves_selection">which HM moves should your slave be able to learn?<br /></label>
-			<select name="moves_selection" id="moves_selection" multiple>
-			</select>
+			<div name="moves_selection" id="moves_selection">
+			</div>
 		</span>
 		<br />
 		your perfect HM slaves:<br />
@@ -302,7 +302,7 @@
 		$("#game_pick").on("input change", function () {
 			const game_selected = $("#game_pick").find(":selected").val();
 			$("#moves_pick_stuff").hide();
-			$("#moves_selection").children("option:not(:empty)").remove();
+			$("#moves_selection").children().remove();
 			let valid_moves = [];
 			for (let hidden_moves_index in hidden_moves) {
 				let hidden_move = hidden_moves[hidden_moves_index];
@@ -310,17 +310,25 @@
 					continue;
 				}
 				valid_moves.push(hidden_move);
-				let option = document.createElement("option");
-				option.textContent = option.value = hidden_moves_index;
-				$("#moves_selection")[0].appendChild(option);
+				let option_outer = document.createElement("span");
+				let option = document.createElement("input");
+				option.type="checkbox";
+				option.name = option.value = hidden_moves_index;
+				let label=document.createElement("label");
+				label.for=option.name;
+				label.textContent=option.value;
+
+				option_outer.appendChild(option);
+				option_outer.appendChild(label);
+				option_outer.appendChild(document.createElement("br"));			
+				$("#moves_selection")[0].appendChild(option_outer);
 			}
-			$("#moves_selection").attr("size", valid_moves.length);
 			$("#moves_pick_stuff").show();
 			console.log(valid_moves);
 		});
 		$("#moves_selection").on("input change", function () {
 			let selected_moves = [];
-			$("#moves_selection").find(":selected").each(function () {
+			$("#moves_selection").find(":checked").each(function () {
 				selected_moves.push(this.value);
 			});
 			let hm_pokemons_in_this_game = [];
