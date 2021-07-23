@@ -83,7 +83,7 @@
 					"running_count": function () {
 						let ret = 0;
 						for (let index in this) {
-							if (["key_counter", "add", "remove", "running_count", "processQueue"].indexOf(index) !== -1) {
+							if (["key_counter", "add", "remove", "running_count"].indexOf(index) !== -1) {
 								continue;
 							}
 							++ret;
